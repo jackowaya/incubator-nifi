@@ -27,6 +27,7 @@ import java.util.Date;
 import java.util.Iterator;
 import java.util.zip.Deflater;
 
+import org.apache.commons.io.IOUtils;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.io.StreamCallback;
 import org.apache.nifi.processors.standard.EncryptContent;
@@ -105,30 +106,36 @@ public class OpenPGPKeyBasedEncryptor implements Encryptor {
     @SuppressWarnings("rawtypes")
     public static PGPPublicKey getPublicKey(String userId, String publicKeyring) throws IOException, PGPException {
         PGPPublicKey pubkey = null;
-        PGPPublicKeyRingCollection pgppub = new
-                PGPPublicKeyRingCollection(PGPUtil.getDecoderStream(Files.newInputStream(Paths.get(publicKeyring))));
+        InputStream fin = Files.newInputStream(Paths.get(publicKeyring));
+        InputStream pin = PGPUtil.getDecoderStream(fin);
+        try {
+            PGPPublicKeyRingCollection pgppub = new PGPPublicKeyRingCollection(pin);
 
-        Iterator ringit = pgppub.getKeyRings();
-        while (ringit.hasNext()) {
-            PGPPublicKeyRing kring = (PGPPublicKeyRing) ringit.next();
+            Iterator ringit = pgppub.getKeyRings();
+            while (ringit.hasNext()) {
+                PGPPublicKeyRing kring = (PGPPublicKeyRing) ringit.next();
 
-            Iterator keyit = kring.getPublicKeys();
-            while (keyit.hasNext()) {
-                pubkey = (PGPPublicKey) keyit.next();
-                boolean userIdMatch = false;
+                Iterator keyit = kring.getPublicKeys();
+                while (keyit.hasNext()) {
+                    pubkey = (PGPPublicKey) keyit.next();
+                    boolean userIdMatch = false;
 
-                Iterator userit = pubkey.getUserIDs();
-                while (userit.hasNext()) {
-                    String id = userit.next().toString();
-                    if (id.contains(userId)) {
-                        userIdMatch = true;
-                        break;
+                    Iterator userit = pubkey.getUserIDs();
+                    while (userit.hasNext()) {
+                        String id = userit.next().toString();
+                        if (id.contains(userId)) {
+                            userIdMatch = true;
+                            break;
+                        }
+                    }
+                    if (pubkey.isEncryptionKey() && userIdMatch) {
+                        return pubkey;
                     }
                 }
-                if (pubkey.isEncryptionKey() && userIdMatch) {
-                    return pubkey;
-                }
             }
+        } finally {
+            IOUtils.closeQuietly(pin);
+            IOUtils.closeQuietly(fin);
         }
         return null;
     }
